@@ -94,6 +94,7 @@ uv run remote-chrome cookies                    # default = current page origin 
 uv run remote-chrome cookies --domain google.com    # explicit domain filter
 uv run remote-chrome cookies --all                  # entire browser cookie jar
 uv run remote-chrome localstorage
+uv run remote-chrome get-download-dir           # debug profile's download dir (from Preferences)
 uv run remote-chrome eval "document.title"
 
 # Async eval works out of the box (awaits Promises by default):
@@ -344,6 +345,7 @@ uv run remote-chrome cookies                    # 默认只返回当前页 origi
 uv run remote-chrome cookies --domain google.com    # 显式过滤域
 uv run remote-chrome cookies --all                  # 整个浏览器 cookie jar
 uv run remote-chrome localstorage
+uv run remote-chrome get-download-dir           # debug profile 的下载目录（取自 Preferences）
 uv run remote-chrome eval "document.title"
 
 # async eval 直接可工作（默认 await Promise）：

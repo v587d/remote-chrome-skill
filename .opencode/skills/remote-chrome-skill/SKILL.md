@@ -30,6 +30,7 @@ It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each su
 - `start-chrome` (launch Chrome with debug port from WSL — no desktop click needed)
 - `kill-chrome` (selectively kill ONLY the debug Chrome instance, never the user's browsing Chrome)
 - `bootstrap` (print the one-time Windows setup PowerShell commands)
+- `get-download-dir` (read the debug profile's configured download directory from its `Preferences` file — CDP does not expose this directly)
 
 ## Installation
 
@@ -87,6 +88,9 @@ uv run remote-chrome scroll --dy 500            # default method=wheel --wait-ms
 uv run remote-chrome cookies                    # current page only (use --all for full jar)
 uv run remote-chrome localstorage
 uv run remote-chrome eval "JSON.stringify({url: location.href, title: document.title})"
+
+# 5. Inspect the debug profile's download directory
+uv run remote-chrome get-download-dir           # reads C:\temp\chrome-debug-profile\Default\Preferences
 ```
 
 ## Handling SPAs (X, Reddit, modern e-commerce)
