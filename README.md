@@ -44,7 +44,7 @@ WSL (this skill) ---> Windows IP:9223 ---> netsh portproxy ---> 127.0.0.1:9222 -
 ### Install
 
 ```bash
-git clone https://github.com/<owner>/remote-chrome-skill
+git clone https://github.com/v587d/remote-chrome-skill.git
 cd remote-chrome-skill
 uv sync                    # creates .venv, installs websockets
 ```
@@ -294,7 +294,7 @@ WSL (本 skill) ---> Windows IP:9223 ---> netsh portproxy ---> 127.0.0.1:9222 --
 ### 安装
 
 ```bash
-git clone https://github.com/<owner>/remote-chrome-skill
+git clone https://github.com/v587d/remote-chrome-skill.git
 cd remote-chrome-skill
 uv sync                    # 创建 .venv，安装 websockets
 ```
