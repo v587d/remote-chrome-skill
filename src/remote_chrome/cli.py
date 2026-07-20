@@ -143,6 +143,10 @@ async def _cmd_localstorage(rc, args) -> dict:
     return {"entries": ls, "count": len(ls)}
 
 
+async def _cmd_get_download_dir(rc, args) -> dict:
+    return rc.get_download_dir()
+
+
 async def _cmd_wait_nav(rc, args) -> dict:
     return await rc.wait_for_navigation(
         url_contains=args.url_contains,
@@ -187,6 +191,7 @@ HANDLERS = {
     "eval": _cmd_eval,
     "cookies": _cmd_cookies,
     "localstorage": _cmd_localstorage,
+    "get-download-dir": _cmd_get_download_dir,
     "wait-for-navigation": _cmd_wait_nav,
     "wait-for-auth": _cmd_wait_auth,
     "start-chrome": _cmd_start_chrome,
@@ -263,6 +268,11 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Return ALL cookies in the browser jar (default: only current page origin)")
 
     sub.add_parser("localstorage", help="Read localStorage for current page origin")
+
+    sub.add_parser(
+        "get-download-dir",
+        help="Read the debug profile's configured download directory (from profile Preferences)",
+    )
 
     p_waitnav = sub.add_parser("wait-for-navigation", help="Wait until URL changes or contains a substring")
     p_waitnav.add_argument("--url-contains", default=None)

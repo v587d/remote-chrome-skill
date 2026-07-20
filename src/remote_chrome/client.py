@@ -684,6 +684,95 @@ class RemoteChrome:
             return []
         return await self.get_cookies(urls=[href])
 
+    # Chrome does NOT expose the download directory over CDP (no
+    # Browser.getDownloadPath exists). The value lives in the user profile's
+    # `Preferences` JSON under `download.default_directory`. This skill drives a
+    # fixed debug profile (see start_chrome), so we read that profile's
+    # Preferences. We try PowerShell on the native Windows path first, then fall
+    # back to the WSL /mnt/c mount. When the key is absent Chrome uses its OS
+    # default Downloads folder.
+
+    DEBUG_PROFILE_DIR = "C:\\temp\\chrome-debug-profile"
+
+    def get_download_dir(self) -> dict[str, Any]:
+        """Read the debug profile's configured download directory.
+
+        Returns a dict with keys:
+          found   : bool  -- True if a custom directory is configured
+          path    : str   -- the directory (custom, or OS default hint if not)
+          source  : str   -- how the path was resolved
+          profile : str   -- the profile directory that was inspected
+        """
+        profile = self.DEBUG_PROFILE_DIR
+        pref_path = f"{profile}\\Default\\Preferences"
+
+        raw = self._read_profile_preferences(pref_path)
+        if raw is None:
+            return {
+                "found": False,
+                "path": "",
+                "source": "unreadable",
+                "profile": profile,
+                "note": "Could not read Preferences file (Chrome not started, or cross-fs access blocked).",
+            }
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return {
+                "found": False,
+                "path": "",
+                "source": "parse_error",
+                "profile": profile,
+                "note": f"Preferences file is not valid JSON: {exc}",
+            }
+
+        ddir = (
+            data.get("download", {}).get("default_directory")
+            or data.get("savefile", {}).get("default_directory")
+            or data.get("download", {}).get("directory_upgrade")
+        )
+        if ddir:
+            return {
+                "found": True,
+                "path": ddir,
+                "source": "profile_preferences",
+                "profile": profile,
+            }
+
+        return {
+            "found": False,
+            "path": "",
+            "source": "chrome_default",
+            "profile": profile,
+            "note": "No custom download directory set; Chrome uses the OS default Downloads folder.",
+        }
+
+    def _read_profile_preferences(self, pref_path: str) -> str | None:
+        """Read the Preferences file via PowerShell (Windows path) with a WSL /mnt/c fallback."""
+        ps_cmd = f"Get-Content -Raw -Path '{pref_path}'"
+        cmd = [
+            "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+            "-NoProfile",
+            "-Command",
+            ps_cmd,
+        ]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+        wsl_path = pref_path.replace("C:\\", "/mnt/c/").replace("\\", "/")
+        try:
+            with open(wsl_path, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return None
+
     async def get_localstorage(self) -> dict[str, str]:
         value = await self.eval_js(
             "JSON.stringify("
