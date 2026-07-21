@@ -1,0 +1,2 @@
+[console_scripts]
+remote-chrome = remote_chrome.cli:main
