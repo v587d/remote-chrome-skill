@@ -115,12 +115,38 @@ class RemoteChrome:
         self._browser_ws_url: str | None = None
         self._cmd_id: int = 0
         self._target_id: str | None = None
+        self._chrome_process: subprocess.Popen | None = None
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
-        pass
+        """Clean up resources on context exit."""
+        await self.cleanup()
+
+    async def cleanup(self) -> None:
+        """Ensure all resources are properly released.
+        
+        This method:
+        - Closes any tracked Chrome process started via this instance
+        - Clears cached WebSocket URLs to force reconnection
+        
+        Safe to call multiple times.
+        """
+        if self._chrome_process is not None:
+            try:
+                self._chrome_process.terminate()
+                try:
+                    self._chrome_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._chrome_process.kill()
+                    self._chrome_process.wait(timeout=2)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            finally:
+                self._chrome_process = None
+        
+        self._browser_ws_url = None
 
     # -- Internals ---------------------------------------------------------
 
@@ -150,7 +176,9 @@ class RemoteChrome:
         ws_url = self._ensure_browser_ws()
         self._cmd_id += 1
         cmd_id = self._cmd_id
-        async with websockets.connect(ws_url, max_size=10 * 1024 * 1024) as ws:
+        ws = None
+        try:
+            ws = await websockets.connect(ws_url, max_size=10 * 1024 * 1024)
             payload: dict[str, Any] = {"id": cmd_id, "method": method}
             if params:
                 payload["params"] = params
@@ -171,6 +199,9 @@ class RemoteChrome:
                             f"CDP error: {err.get('message', err)} (method={method})"
                         )
                     return resp.get("result", {})
+        finally:
+            if ws is not None:
+                await ws.close()
 
     async def _cdp_send_on_tab(
         self, tab: Tab, method: str, params: dict | None = None,
@@ -190,9 +221,11 @@ class RemoteChrome:
             )
         self._cmd_id += 1
         cmd_id = self._cmd_id
-        async with websockets.connect(
-            tab.ws_url, max_size=10 * 1024 * 1024
-        ) as ws:
+        ws = None
+        try:
+            ws = await websockets.connect(
+                tab.ws_url, max_size=10 * 1024 * 1024
+            )
             payload: dict[str, Any] = {"id": cmd_id, "method": method}
             if params:
                 payload["params"] = params
@@ -213,6 +246,9 @@ class RemoteChrome:
                             f"CDP error: {err.get('message', err)} (method={method})"
                         )
                     return resp.get("result", {})
+        finally:
+            if ws is not None:
+                await ws.close()
 
     async def _eval_on_tab(
         self, tab: Tab, expression: str,
