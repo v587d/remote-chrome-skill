@@ -821,6 +821,63 @@ class RemoteChrome:
             return json.loads(value)
         return {}
 
+    async def screenshot(
+        self,
+        *,
+        fmt: str = "png",
+        quality: int | None = None,
+        full_page: bool = False,
+    ) -> bytes:
+        """Capture a screenshot of the current page.
+        
+        Args:
+            fmt: Image format, either 'png' or 'jpeg'
+            quality: JPEG quality (0-100), only used when fmt='jpeg'
+            full_page: If True, capture the entire scrollable page
+            
+        Returns:
+            Raw image data as bytes
+        """
+        tab = await self._resolve_tab()
+        
+        params: dict[str, Any] = {"format": fmt}
+        if fmt == "jpeg" and quality is not None:
+            params["quality"] = quality
+        
+        if full_page:
+            # Get the full page dimensions first
+            metrics = await self._cdp_send_on_tab(
+                tab, "Page.getLayoutMetrics"
+            )
+            content_size = metrics.get("contentSize", {})
+            width = content_size.get("width", 0)
+            height = content_size.get("height", 0)
+            
+            # Set device metrics override to capture full page
+            await self._cdp_send_on_tab(
+                tab, "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": int(width),
+                    "height": int(height),
+                    "deviceScaleFactor": 1,
+                    "mobile": False,
+                }
+            )
+            
+            try:
+                result = await self._cdp_send_on_tab(tab, "Page.captureScreenshot", params)
+            finally:
+                # Clear the override
+                await self._cdp_send_on_tab(
+                    tab, "Emulation.clearDeviceMetricsOverride", {}
+                )
+        else:
+            result = await self._cdp_send_on_tab(tab, "Page.captureScreenshot", params)
+        
+        data_b64 = result.get("data", "")
+        import base64
+        return base64.b64decode(data_b64)
+
     # -- Wait operations ---------------------------------------------------
 
     async def wait_for_navigation(

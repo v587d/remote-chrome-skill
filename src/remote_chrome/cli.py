@@ -143,6 +143,21 @@ async def _cmd_localstorage(rc, args) -> dict:
     return {"entries": ls, "count": len(ls)}
 
 
+async def _cmd_screenshot(rc, args) -> dict:
+    import base64
+    data = await rc.screenshot(
+        fmt=args.format,
+        quality=args.quality if args.format == "jpeg" else None,
+        full_page=args.full_page,
+    )
+    return {
+        "format": args.format,
+        "full_page": args.full_page,
+        "size_bytes": len(data),
+        "data_base64": base64.b64encode(data).decode("ascii"),
+    }
+
+
 async def _cmd_get_download_dir(rc, args) -> dict:
     return rc.get_download_dir()
 
@@ -191,6 +206,7 @@ HANDLERS = {
     "eval": _cmd_eval,
     "cookies": _cmd_cookies,
     "localstorage": _cmd_localstorage,
+    "screenshot": _cmd_screenshot,
     "get-download-dir": _cmd_get_download_dir,
     "wait-for-navigation": _cmd_wait_nav,
     "wait-for-auth": _cmd_wait_auth,
@@ -268,6 +284,14 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Return ALL cookies in the browser jar (default: only current page origin)")
 
     sub.add_parser("localstorage", help="Read localStorage for current page origin")
+
+    p_screenshot = sub.add_parser("screenshot", help="Capture a screenshot of the current page")
+    p_screenshot.add_argument("--format", choices=["png", "jpeg"], default="png",
+                              help="Image format (default: png)")
+    p_screenshot.add_argument("--quality", type=int, default=None,
+                              help="JPEG quality 0-100 (only used with --format jpeg)")
+    p_screenshot.add_argument("--full-page", action="store_true",
+                              help="Capture the entire scrollable page, not just viewport")
 
     sub.add_parser(
         "get-download-dir",
