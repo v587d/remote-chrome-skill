@@ -11,6 +11,7 @@ CDP routing rule:
 import asyncio
 import json
 import logging
+import os
 import re
 import shlex
 import subprocess
@@ -22,6 +23,16 @@ from typing import Any
 import websockets
 
 logger = logging.getLogger(__name__)
+
+# Configurable Chrome path and debug profile directory via environment variables
+CHROME_EXE = os.environ.get(
+    "REMOTE_CHROME_EXE",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+)
+DEBUG_PROFILE_DIR = os.environ.get(
+    "REMOTE_CHROME_PROFILE_DIR",
+    r"C:\temp\chrome-debug-profile"
+)
 
 # ---------------------------------------------------------------------------
 # Types
@@ -290,9 +301,9 @@ class RemoteChrome:
 
     def start_chrome(self) -> None:
         ps_cmd = (
-            "Start-Process -FilePath 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' "
-            "-ArgumentList @('--remote-debugging-port=9222',"
-            "'--user-data-dir=C:\\temp\\chrome-debug-profile')"
+            f"Start-Process -FilePath '{CHROME_EXE}' "
+            f"-ArgumentList @('--remote-debugging-port=9222',"
+            f"'--user-data-dir={DEBUG_PROFILE_DIR}')"
         )
         cmd = [
             "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
@@ -302,6 +313,7 @@ class RemoteChrome:
         ]
         logger.info("Starting Chrome via PowerShell: %s", shlex.join(cmd))
         subprocess.run(cmd, capture_output=True, timeout=15)
+
 
     def kill_chrome(self) -> None:
         """Kill ONLY the Chrome debug instance (--remote-debugging-port=9222)."""

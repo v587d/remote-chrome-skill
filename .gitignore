@@ -4,31 +4,42 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 
-# Dependencies
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
 .venv/
 venv/
 env/
-.env
-.env.local
-.env.*
 
 # Logs
 *.log
 
-# Coverage
-.coverage
-coverage/
-htmlcov/
+# Temporary files
+*.tmp
+*.swp
 
-# IDE
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-*.tmp
 
-# OS
-.DS_Store
-Thumbs.db
+# Coverage reports
+.coverage
+htmlcov/
+coverage/
+
+# MyPy cache
+.mypy_cache/
+
+# Pytest cache
+.pytest_cache/
 ```
