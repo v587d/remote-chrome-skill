@@ -1,0 +1,9 @@
+{
+  "name": "remote-chrome-skill",
+  "version": "0.1.0",
+  "description": "Control a Windows Chrome debug instance from WSL Ubuntu via CDP",
+  "keywords": ["pi-package"],
+  "pi": {
+    "skills": ["./SKILL.md"]
+  }
+}
