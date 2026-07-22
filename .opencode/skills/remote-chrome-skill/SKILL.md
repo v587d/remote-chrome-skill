@@ -1,12 +1,13 @@
 ---
 name: remote-chrome-skill
-description: "Control a Windows Chrome debug instance from WSL Ubuntu via the Chrome DevTools Protocol (CDP). Use this skill when the user asks to operate a real Chrome browser running on Windows - open URLs, click buttons, type into inputs, scroll, read cookies/localStorage, wait for user login to complete, or automate any browser interaction that requires a real browser profile. Triggers: 'remote-chrome', 'windows chrome', 'control chrome from wsl', 'use my chrome', 'chrome debug', 'browser cookie scraping', 'browser automation via cdp', 'CDP', 'DevTools Protocol'."
+description: "Control a Windows Chrome debug instance from WSL Ubuntu via the Chrome DevTools Protocol (CDP). Use this skill when the user asks to operate a real Chrome browser running on Windows - open URLs, click buttons, type into inputs, scroll, read cookies/localStorage, wait for user login to complete, capture screenshots, or automate any browser interaction that requires a real browser profile. Triggers: 'remote-chrome', 'windows chrome', 'control chrome from wsl', 'use my chrome', 'chrome debug', 'browser cookie scraping', 'browser automation via cdp', 'CDP', 'DevTools Protocol', 'take screenshot', 'capture page'."
 license: MIT
 compatibility: opencode
 metadata:
   audience: developers
   platform: wsl
   requires: chrome-windows
+  version: "0.1.0"
 ---
 
 # remote-chrome-skill
@@ -25,6 +26,7 @@ It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each su
 - Evaluating **arbitrary JS including async/await** (default `awaitPromise=true`; pass `--no-await` to opt out). Set `--timeout-ms` to override the 30s default recv timeout
 - Reading **cookies scoped to the current page origin by default** (use `--all` for the full browser cookie jar, `--domain X` for an explicit domain)
 - Reading `localStorage` for the current origin
+- **Capturing screenshots** — PNG or JPEG format, with optional `--full-page` to capture entire scrollable content
 - `wait-for-navigation` (polls `location.href` against the real-time baseline, not the HTTP `/json` tab.url)
 - `wait-for-auth` (polls `Network.getCookies` until a named auth cookie appears)
 - `start-chrome` (launch Chrome with debug port from WSL — no desktop click needed)
@@ -89,7 +91,11 @@ uv run remote-chrome cookies                    # current page only (use --all f
 uv run remote-chrome localstorage
 uv run remote-chrome eval "JSON.stringify({url: location.href, title: document.title})"
 
-# 5. Inspect the debug profile's download directory
+# 5. Capture a screenshot (for visual verification or debugging)
+uv run remote-chrome screenshot --format png    # saves base64 PNG to stdout
+uv run remote-chrome screenshot --full-page --format jpeg --quality 80
+
+# 6. Inspect the debug profile's download directory
 uv run remote-chrome get-download-dir           # reads C:\temp\chrome-debug-profile\Default\Preferences
 ```
 
@@ -181,6 +187,32 @@ The agent using this skill MUST follow:
 | `tab_not_found` | No tab matches the URL substring | Run `uv run remote-chrome list-tabs` to see available tabs |
 | `element_not_found` | CSS selector did not match | The page may still be loading; pass `--timeout` to `navigate` or add explicit waits |
 | `navigation_timeout` | Page took >15s to load | Run `navigate --timeout 60` |
+| Screenshot is blank or shows only part of page | Page has lazy-loaded content | Scroll first with `scroll --dy N --wait-ms 500`, then capture |
+| Full-page screenshot distorted | Page uses responsive layout | Use viewport screenshot (omit `--full-page`) for best results |
+
+## Quick reference: common scenarios
+
+### Visual verification after interaction
+```bash
+# Click a button and capture what happened
+uv run remote-chrome click "#submit"
+uv run remote-chrome screenshot --format png
+```
+
+### Debug why element not found
+```bash
+# Navigate and immediately screenshot to see actual page state
+uv run remote-chrome navigate "https://example.com" --wait-for-selector "body"
+uv run remote-chrome screenshot --full-page --format jpeg --quality 60
+```
+
+### Document generation / archival
+```bash
+# Capture full article for PDF conversion later
+uv run remote-chrome navigate "https://example.com/article" --wait-for-selector "article"
+uv run remote-chrome screenshot --full-page --format png
+# Output data_base64 field can be decoded and saved as image
+```
 
 ## Auto-detection of Windows host IP
 
