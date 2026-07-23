@@ -28,6 +28,7 @@ It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each su
 - Reading **cookies scoped to the current page origin by default** (use `--all` for the full browser cookie jar, `--domain X` for an explicit domain)
 - Reading `localStorage` for the current origin
 - **Capturing screenshots** — PNG or JPEG format, with optional `--full-page` to capture entire scrollable content
+- **CDP event subscription** — subscribe to browser events (`Runtime.consoleAPICalled`, `Page.loadEventFired`, `Network.requestWillBeSent`, `DOM.attributeModified`, etc.), poll accumulated events, unsubscribe when done. Supports wildcards like `Runtime.*`.
 - `wait-for-navigation` (polls `location.href` against the real-time baseline, not the HTTP `/json` tab.url)
 - `wait-for-auth` (polls `Network.getCookies` until a named auth cookie appears)
 - **`network-monitor`** (monitor network requests with URL/resource-type filters; retrieve request/response details as JSON)
@@ -113,6 +114,14 @@ uv run remote-chrome tab-new                               # create blank tab
 uv run remote-chrome list-tabs                             # list all tabs with IDs
 uv run remote-chrome tab-switch <tab_id>                   # switch to tab by ID
 uv run remote-chrome tab-close <tab_id>                    # close tab by ID
+
+# 9. Event subscription - listen to browser events (console logs, page loads, network, DOM changes)
+uv run remote-chrome event subscribe --event-types "Runtime.consoleAPICalled,Page.loadEventFired"
+# ... do things in the browser ...
+uv run remote-chrome event poll                           # retrieve accumulated events
+uv run remote-chrome event poll --clear                   # retrieve and clear the event buffer
+uv run remote-chrome event clear                          # clear without reading
+uv run remote-chrome event unsubscribe                    # stop the background event daemon
 ```
 
 ## Handling SPAs (X, Reddit, modern e-commerce)
@@ -177,6 +186,91 @@ uv run remote-chrome wait-for-auth --cookie-name SID --cookie-domain .google.com
 uv run remote-chrome cookies --domain google.com     # explicit domain filter still works
 ```
 
+## Event subscription (monitor console, network, DOM, page lifecycle)
+
+The event system spawns a background daemon that keeps a persistent WebSocket to Chrome CDP, collects matching events into a JSONL file, and lets you poll them later.
+
+### Lifecycle
+
+```bash
+# 1. Subscribe to events you care about
+uv run remote-chrome event subscribe \
+  --event-types "Runtime.consoleAPICalled,Runtime.exceptionThrown,Page.loadEventFired" \
+  --timeout 300
+
+# 2. Perform browser actions (navigation, clicks, etc.)
+uv run remote-chrome navigate "https://example.com" --wait-for-selector "body"
+uv run remote-chrome click "#my-button"
+
+# 3. Poll accumulated events
+uv run remote-chrome event poll
+
+# 4. Stop the daemon when done
+uv run remote-chrome event unsubscribe
+```
+
+### Supported event types
+
+| Category | Event |
+|---|---|
+| **Runtime** | `Runtime.consoleAPICalled`, `Runtime.exceptionThrown`, `Runtime.executionContextCreated`, `Runtime.executionContextDestroyed` |
+| **Page** | `Page.loadEventFired`, `Page.domContentEventFired`, `Page.frameNavigated`, `Page.javascriptDialogOpening`, `Page.windowOpen` |
+| **Network** | `Network.requestWillBeSent`, `Network.responseReceived`, `Network.loadingFinished`, `Network.loadingFailed` |
+| **DOM** | `DOM.attributeModified`, `DOM.attributeRemoved`, `DOM.childNodeInserted`, `DOM.childNodeRemoved`, `DOM.characterDataModified`, `DOM.documentUpdated` |
+| **Log** | `Log.entryAdded` |
+
+Wildcards are supported: `Runtime.*` subscribes to all Runtime events, `Network.*` to all Network events.
+
+### Common scenarios
+
+**Debug console errors on a page:**
+```bash
+uv run remote-chrome event subscribe --event-types "Runtime.consoleAPICalled,Runtime.exceptionThrown"
+# ... navigate, click around ...
+uv run remote-chrome event poll --clear
+# Look for console.error or uncaught exceptions in the output
+uv run remote-chrome event unsubscribe
+```
+
+**Wait for a specific DOM change:**
+```bash
+uv run remote-chrome event subscribe --event-types "DOM.attributeModified,DOM.childNodeInserted"
+uv run remote-chrome click "#load-more"
+# Poll until you see the expected DOM mutation
+uv run remote-chrome event poll --clear
+uv run remote-chrome event unsubscribe
+```
+
+**Monitor network requests for an SPA interaction:**
+```bash
+uv run remote-chrome event subscribe --event-types "Network.requestWillBeSent,Network.responseReceived"
+uv run remote-chrome click "#search-btn"
+# Examine API calls the button triggered
+uv run remote-chrome event poll
+uv run remote-chrome event unsubscribe
+```
+
+### Event output format
+
+Each event is a JSON object:
+```json
+{
+  "timestamp": 1718500001.234,
+  "method": "Runtime.consoleAPICalled",
+  "params": {
+    "type": "log",
+    "args": [{"type": "string", "value": "Hello from the page"}]
+  }
+}
+```
+
+### Daemon management
+
+- The daemon is **per-port** — one subscriber per Chrome debug port
+- Calling `subscribe` again automatically replaces the previous daemon
+- The daemon exits automatically after `--timeout` seconds (default 300; 0 = indefinite)
+- Poll with `--clear` to consume events (read-and-truncate), or omit to re-read
+
 ## Security constraints (HARD RULES for the agent)
 
 The agent using this skill MUST follow:
@@ -205,6 +299,9 @@ The agent using this skill MUST follow:
 | `navigation_timeout` | Page took >15s to load | Run `navigate --timeout 60` |
 | Screenshot is blank or shows only part of page | Page has lazy-loaded content | Scroll first with `scroll --dy N --wait-ms 500`, then capture |
 | Full-page screenshot distorted | Page uses responsive layout | Use viewport screenshot (omit `--full-page`) for best results |
+| `event subscribe` returns `daemon exited immediately` | No open tabs or tab is an internal chrome:// page | Navigate to a real web page first, then subscribe |
+| `event poll` returns empty events but daemon is running | No matching events occurred between subscribe and poll | Verify the event type name is correct; try a broader wildcard like `Runtime.*` |
+| Daemon not collecting events | CDP domain was not enabled | Check `--event-types` spelling; use known types from `event subscribe --help` |
 
 ## Quick reference: common scenarios
 

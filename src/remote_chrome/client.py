@@ -1161,6 +1161,85 @@ class RemoteChrome:
         
         return requests
 
+    # -- Event subscription -----------------------------------------------
+
+    async def subscribe_events(
+        self,
+        event_types: list[str],
+        *,
+        timeout: float = 300.0,
+        clear_existing: bool = True,
+    ) -> dict[str, Any]:
+        """Start listening for CDP events on the active tab.
+
+        Spawns a background daemon that collects matching events into a 
+        JSONL file. Use `poll_events()` to retrieve them and
+        `unsubscribe_events()` to stop.
+
+        Args:
+            event_types: CDP event method names, e.g. 
+                         ['Runtime.consoleAPICalled', 'Page.loadEventFired'].
+                         Supports wildcards like 'Runtime.*'.
+            timeout: Max seconds to listen (0 = indefinite).
+            clear_existing: Truncate the events file before starting.
+
+        Returns:
+            Dict with 'started', 'pid', 'events_file', 'subscribed_types'.
+        """
+        from remote_chrome.events import (
+            start_event_daemon,
+            clear_events as _clear_events,
+        )
+
+        if clear_existing:
+            _clear_events(self.port)
+
+        tab = await self._resolve_tab()
+        if not tab.ws_url:
+            return {
+                "started": False,
+                "error": f"Tab {tab.id} has no WebSocket URL (internal page?)",
+                "pid": None,
+            }
+
+        return start_event_daemon(
+            host=self.host,
+            port=self.port,
+            tab_ws_url=tab.ws_url,
+            event_types=event_types,
+            timeout=timeout,
+        )
+
+    def unsubscribe_events(self) -> dict[str, Any]:
+        """Stop the event daemon for this port.
+
+        Returns:
+            Dict with 'stopped' (bool) and 'events_file'.
+        """
+        from remote_chrome.events import stop_event_daemon
+        return stop_event_daemon(self.port)
+
+    def poll_events(self, clear: bool = False) -> dict[str, Any]:
+        """Retrieve accumulated events from the daemon.
+
+        Args:
+            clear: If True, truncate the events file after reading.
+
+        Returns:
+            Dict with 'events' (list), 'count' (int), 'events_file'.
+        """
+        from remote_chrome.events import poll_events as _poll
+        return _poll(self.port, clear=clear)
+
+    def clear_events(self) -> dict[str, Any]:
+        """Truncate the events file.
+
+        Returns:
+            Dict with 'cleared' and 'events_file'.
+        """
+        from remote_chrome.events import clear_events as _clear
+        return _clear(self.port)
+
     async def get_request_details(self, request_id: str) -> NetworkRequest | None:
         """Get detailed information for a specific network request.
         

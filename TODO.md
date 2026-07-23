@@ -4,28 +4,7 @@
 
 ---
 
-## P1 重要增强 (High Priority)
-
-### 4. 网络请求监控
-- **目标**: 实现对页面网络请求的拦截、监控和日志记录
-- **场景**: 调试 SPA 应用、抓取 API 响应数据、分析资源加载
-- **技术点**: 
-  - `Network.enable` / `Network.requestWillBeSent` / `Network.responseReceived`
-  - 支持按 URL 过滤、按类型过滤 (XHR/Fetch/WS)
-  - 获取请求头、响应头、响应体
-- **输出格式**: JSON 数组，包含 requestId, url, method, status, timing 等字段
-
-### 5. Tab 管理（新建/关闭）
-- **目标**: 支持多标签页操作
-- **场景**: 同时打开多个页面、后台预加载、清理无用标签
-- **技术点**:
-  - `Target.createTarget` (新建 tab)
-  - `Target.closeTarget` (关闭 tab)
-  - `Target.getTargets` (列出所有 tab)
-  - `Target.attachToTarget` (切换到指定 tab)
-- **命令设计**: `tab new`, `tab close`, `tab list`, `tab switch <id>`
-
-### 6. CDP 事件订阅
+### 6. CDP 事件订阅 ✅
 - **目标**: 支持事件驱动模式，监听浏览器事件
 - **场景**: 等待特定元素出现、监听控制台日志、捕获页面错误
 - **技术点**:
@@ -33,6 +12,7 @@
   - 支持 `Runtime.consoleAPICalled`, `Page.loadEventFired`, `DOM.attributeModified` 等
   - 异步事件回调或轮询接口
 - **命令设计**: `event subscribe <eventType>`, `event unsubscribe`, `event poll`
+- **状态**: 已完成 — 见 `src/remote_chrome/events.py`，支持后台守护进程 + JSONL 文件轮询
 
 ### 7. 类型注解不完整
 - **目标**: 为所有 Python 文件添加完整的类型注解
@@ -137,14 +117,15 @@
   - 在 SKILL.md 顶部添加 `version: 0.1.0`
   - 遵循语义化版本规范 (MAJOR.MINOR.PATCH)
   - 在 CLI 中增加 `--version` 参数
-  - 在 PI_AGENT_SETUP.md 中说明版本兼容性
+
 
 ---
 
 ## 实施建议
 
 ### 短期 (1-2 周)
-- [ ] 完成 P1 第 4-7 项
+- [x] ~~完成 P1 第 4-7 项~~ (第 4, 5, 6 已完成; 第 7 待处理)
+- [ ] 完成 P1 第 7 项 (类型注解)
 - [ ] 完成 P2 第 8-10 项
 - [ ] 添加类型注解并通过 mypy 检查
 

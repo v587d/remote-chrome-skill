@@ -214,3 +214,86 @@ def test_network_request_default_values():
     assert req.response_headers == {}
     assert req.response_body == ""
     assert req.error == ""
+
+
+# --------------------------------------------------------------------------
+# Event subscription tests
+# --------------------------------------------------------------------------
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_event_domain_map_membership():
+    """Test that known event types exist in EVENT_DOMAIN_MAP."""
+    from remote_chrome.events import EVENT_DOMAIN_MAP
+    
+    known = [
+        "Runtime.consoleAPICalled",
+        "Runtime.exceptionThrown",
+        "Page.loadEventFired",
+        "Page.domContentEventFired",
+        "Page.frameNavigated",
+        "DOM.attributeModified",
+        "DOM.childNodeInserted",
+        "DOM.childNodeRemoved",
+        "Network.requestWillBeSent",
+        "Network.responseReceived",
+        "Network.loadingFinished",
+        "Network.loadingFailed",
+        "Log.entryAdded",
+    ]
+    for ev in known:
+        assert ev in EVENT_DOMAIN_MAP, f"{ev} should be in EVENT_DOMAIN_MAP"
+
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_get_unique_domains_single_event():
+    """Test that get_unique_domains returns the correct domain for a single event."""
+    from remote_chrome.events import get_unique_domains
+    
+    assert get_unique_domains(["Runtime.consoleAPICalled"]) == {"Runtime.enable"}
+    assert get_unique_domains(["Page.loadEventFired"]) == {"Page.enable"}
+    assert get_unique_domains(["Network.requestWillBeSent"]) == {"Network.enable"}
+    assert get_unique_domains(["DOM.attributeModified"]) == {"DOM.enable"}
+    assert get_unique_domains(["Log.entryAdded"]) == {"Log.enable"}
+
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_get_unique_domains_multiple_events():
+    """Test that get_unique_domains deduplicates domain enable methods."""
+    from remote_chrome.events import get_unique_domains
+    
+    # Multiple events from same domain
+    doms = get_unique_domains([
+        "Page.loadEventFired",
+        "Page.domContentEventFired",
+        "Page.frameNavigated",
+    ])
+    assert doms == {"Page.enable"}
+    
+    # Events from different domains
+    doms = get_unique_domains([
+        "Runtime.consoleAPICalled",
+        "Page.loadEventFired",
+        "Network.requestWillBeSent",
+    ])
+    assert doms == {"Runtime.enable", "Page.enable", "Network.enable"}
+
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_get_unique_domains_unknown_event():
+    """Test that unknown event types are silently ignored."""
+    from remote_chrome.events import get_unique_domains
+    
+    doms = get_unique_domains(["Nonexistent.Event"])
+    assert doms == set()
+
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_event_file_paths():
+    """Test that event file paths are generated correctly."""
+    from remote_chrome.events import _events_file, _pid_file
+    
+    assert "9223" in _events_file(9223)
+    assert ".jsonl" in _events_file(9223)
+    assert "9223" in _pid_file(9223)
+    assert ".pid" in _pid_file(9223)
+    assert _events_file(9223) != _events_file(9224)

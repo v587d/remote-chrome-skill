@@ -246,6 +246,63 @@ async def _cmd_network_monitor(rc, args) -> dict:
         return {"error": f"Unknown action: {args.action}"}
 
 
+async def _cmd_event_dispatch(rc, args) -> dict:
+    """Dispatch event subcommands: subscribe, unsubscribe, poll, clear."""
+    from remote_chrome.events import EVENT_DOMAIN_MAP
+
+    if args.action == "subscribe":
+        event_types = [t.strip() for t in args.event_types.split(",")]
+
+        # Validate event types and expand wildcards
+        valid_types = []
+        invalid_types = []
+        for et in event_types:
+            if et.endswith(".*"):
+                prefix = et[:-2]
+                matched = [e for e in EVENT_DOMAIN_MAP if e.startswith(prefix)]
+                if matched:
+                    valid_types.extend(matched)
+                else:
+                    invalid_types.append(et)
+            elif et in EVENT_DOMAIN_MAP:
+                valid_types.append(et)
+            else:
+                invalid_types.append(et)
+
+        if not valid_types:
+            known = sorted(EVENT_DOMAIN_MAP.keys())
+            return {
+                "error": "no_valid_events",
+                "message": f"None of the requested event types are supported. Known types: {known}",
+                "requested": event_types,
+                "invalid": invalid_types,
+            }
+
+        result = await rc.subscribe_events(
+            valid_types,
+            timeout=args.timeout,
+        )
+
+        result["requested"] = event_types
+        result["subscribed"] = valid_types
+        if invalid_types:
+            result["warnings"] = [f"Unknown event type(s): {invalid_types}"]
+
+        return result
+
+    elif args.action == "unsubscribe":
+        return rc.unsubscribe_events()
+
+    elif args.action == "poll":
+        return rc.poll_events(clear=args.clear)
+
+    elif args.action == "clear":
+        return rc.clear_events()
+
+    else:
+        return {"error": f"Unknown event action: {args.action}"}
+
+
 HANDLERS = {
     "status": _cmd_status,
     "list-tabs": _cmd_list_tabs,
@@ -268,6 +325,7 @@ HANDLERS = {
     "kill-chrome": _cmd_kill_chrome,
     "bootstrap": _cmd_bootstrap,
     "network-monitor": _cmd_network_monitor,
+    "event": _cmd_event_dispatch,
 }
 
 
@@ -388,6 +446,17 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Filter URLs by substring (only for 'start' action)")
     p_network.add_argument("--resource-types", default=None,
                           help="Comma-separated resource types to monitor, e.g., 'XHR,Fetch,Document' (only for 'start')")
+
+    # Event subscription
+    p_event = sub.add_parser("event", help="CDP event subscription (subscribe/unsubscribe/poll/clear)")
+    p_event.add_argument("action", choices=["subscribe", "unsubscribe", "poll", "clear"],
+                         help="Action: subscribe to events, unsubscribe (stop daemon), poll events, or clear events")
+    p_event.add_argument("--event-types", default=None,
+                         help="Comma-separated CDP event types, e.g. 'Runtime.consoleAPICalled,Page.loadEventFired' (for subscribe). Supports wildcards like 'Runtime.*'.")
+    p_event.add_argument("--timeout", type=float, default=300.0,
+                         help="Max seconds to listen for events (for subscribe; 0=indefinite, default: 300)")
+    p_event.add_argument("--clear", action="store_true",
+                         help="Clear events file after reading (for poll)")
 
     return p
 
