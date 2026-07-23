@@ -5,5 +5,8 @@
   "keywords": ["pi-package"],
   "pi": {
     "skills": ["./SKILL.md"]
+  },
+  "scripts": {
+    "postinstall": "uv sync"
   }
 }
