@@ -1,6 +1,6 @@
 ---
 name: remote-chrome-skill
-description: "Control a Windows Chrome debug instance from WSL Ubuntu via the Chrome DevTools Protocol (CDP). Use this skill when the user asks to operate a real Chrome browser running on Windows - open URLs, click buttons, type into inputs, scroll, read cookies/localStorage, wait for user login to complete, capture screenshots, or automate any browser interaction that requires a real browser profile. Triggers: 'remote-chrome', 'windows chrome', 'control chrome from wsl', 'use my chrome', 'chrome debug', 'browser cookie scraping', 'browser automation via cdp', 'CDP', 'DevTools Protocol', 'take screenshot', 'capture page'."
+description: "Control a Windows Chrome debug instance from WSL Ubuntu via the Chrome DevTools Protocol (CDP). Use for real browser automation: navigate, click, type, scroll, screenshot, read cookies/localStorage, monitor network, subscribe to CDP events. Triggers: 'remote-chrome', 'windows chrome', 'control chrome from wsl', 'chrome debug', 'browser automation via cdp', 'CDP', 'DevTools Protocol', 'take screenshot', 'capture page'."
 license: MIT
 compatibility: opencode
 metadata:
@@ -16,330 +16,70 @@ Control a real Chrome browser running on Windows from WSL Ubuntu (or any Linux t
 
 ## What this skill does
 
-It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each subcommand outputs JSON so an agent can parse results reliably. It covers:
+Exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Every subcommand outputs JSON for reliable agent parsing. Covers:
 
-- **Tab management** — create new tabs (`tab-new`), close tabs (`tab-close`), switch between tabs (`tab-switch`), list all tabs (`list-tabs`)
-- Listing and activating tabs (by URL substring **or** 0-based index)
-- Navigating to URLs — supports `--wait-for-selector` / `--wait-for-title` for SPAs where `readyState` lies
-- Clicking elements by CSS selector (real CDP mouse events; error messages include `url` + `readyState` for diagnostics)
-- Typing text into inputs via `Input.insertText`
-- Scrolling — **default `--method=wheel`** dispatches real CDP `mouseWheel` events (triggers SPA virtualization / IntersectionObserver lazy-load). Use `--method=js` for the simpler `window.scrollBy` path. `--wait-ms N` pauses so async renders settle
-- Evaluating **arbitrary JS including async/await** (default `awaitPromise=true`; pass `--no-await` to opt out). Set `--timeout-ms` to override the 30s default recv timeout
-- Reading **cookies scoped to the current page origin by default** (use `--all` for the full browser cookie jar, `--domain X` for an explicit domain)
-- Reading `localStorage` for the current origin
-- **Capturing screenshots** — PNG or JPEG format, with optional `--full-page` to capture entire scrollable content
-- **CDP event subscription** — subscribe to browser events (`Runtime.consoleAPICalled`, `Page.loadEventFired`, `Network.requestWillBeSent`, `DOM.attributeModified`, etc.), poll accumulated events, unsubscribe when done. Supports wildcards like `Runtime.*`.
-- `wait-for-navigation` (polls `location.href` against the real-time baseline, not the HTTP `/json` tab.url)
-- `wait-for-auth` (polls `Network.getCookies` until a named auth cookie appears)
-- **`network-monitor`** (monitor network requests with URL/resource-type filters; retrieve request/response details as JSON)
-- `start-chrome` (launch Chrome with debug port from WSL — no desktop click needed)
-- `kill-chrome` (selectively kill ONLY the debug Chrome instance, never the user's browsing Chrome)
-- `bootstrap` (print the one-time Windows setup PowerShell commands)
-- `get-download-dir` (read the debug profile's configured download directory from its `Preferences` file — CDP does not expose this directly)
+- **Tab management** — create/close/switch/list tabs
+- **Navigation** — with SPA-aware `--wait-for-selector` / `--wait-for-title`
+- **Interaction** — click, type, scroll (real `mouseWheel` by default)
+- **Evaluation** — arbitrary JS including async/await
+- **Data extraction** — cookies (origin-scoped by default), localStorage
+- **Screenshots** — PNG/JPEG, viewport or full-page
+- **Network monitoring** — filter by URL/resource-type, retrieve request/response details
+- **CDP event subscription** — listen to `Runtime.*`, `Page.*`, `Network.*`, `DOM.*`, `Log.*` events via background daemon + JSONL polling
+- **Wait helpers** — `wait-for-navigation`, `wait-for-auth`
+- **Chrome lifecycle** — `start-chrome`, `kill-chrome` (selective), `bootstrap` (Windows setup), `get-download-dir`
 
-## Installation
-
-From WSL Ubuntu:
+## Quick start (1 minute)
 
 ```bash
-git clone https://github.com/<owner>/remote-chrome-skill
-cd remote-chrome-skill
-uv sync                      # creates .venv with websockets dependency
-```
+# 1. Install
+git clone https://github.com/v587d/remote-chrome-skill
+cd remote-chrome-skill && uv sync
 
-Optionally install the CLI on PATH:
+# 2. One-time Windows setup (run in Admin PowerShell on Windows)
+uv run remote-chrome bootstrap   # copy printed script to Windows Admin PowerShell
 
-```bash
-uv pip install -e .          # exposes `remote-chrome` on PATH
-```
-
-Or just use `uv run remote-chrome <command>` from the project root.
-
-## Windows one-time setup (run ONCE on the Windows host)
-
-From an Administrator PowerShell window on Windows, run the script:
-
-```powershell
-# From WSL, get the script content:
-#   uv run remote-chrome bootstrap
-# Copy the printed `powershell_script` field to a Windows PowerShell (Admin) window.
-```
-
-Or copy `scripts/windows-bootstrap.ps1` to Windows and run it as Administrator.
-
-It configures:
-1. `netsh portproxy` 9223 -> 9222 (Chrome binds 127.0.0.1; this exposes it to WSL)
-2. Firewall rule allowing inbound TCP 9223
-3. `C:\temp\chrome-debug-profile` directory
-4. Desktop shortcut "Chrome Debug" (one-click launcher)
-
-The setup persists across reboots.
-
-## Daily usage flow
-
-```bash
-# 1. (Optional) If Chrome is not running, start it from WSL
+# 3. Start Chrome debug instance
 uv run remote-chrome start-chrome
 
-# 2. Navigate somewhere
-uv run remote-chrome navigate "https://example.com"
-
-# 3. Interact with the page
-uv run remote-chrome click "#submit-button"
-uv run remote-chrome type "#username-input" "alice"
-uv run remote-chrome scroll --dy 500            # default method=wheel --wait-ms=200
-
-# 4. Read data
-uv run remote-chrome cookies                    # current page only (use --all for full jar)
-uv run remote-chrome localstorage
-uv run remote-chrome eval "JSON.stringify({url: location.href, title: document.title})"
-
-# 5. Capture a screenshot (for visual verification or debugging)
-uv run remote-chrome screenshot --format png    # saves base64 PNG to stdout
-uv run remote-chrome screenshot --full-page --format jpeg --quality 80
-
-# 6. Inspect the debug profile's download directory
-uv run remote-chrome get-download-dir           # reads C:\temp\chrome-debug-profile\Default\Preferences
-
-# 7. Monitor network requests (debug SPA APIs, capture responses)
-uv run remote-chrome network-monitor start                 # enable monitoring for all requests
-uv run remote-chrome network-monitor start --url-filter "/api/" --resource-types "XHR,Fetch"  # filter by URL and type
-# ... perform actions in browser ...
-uv run remote-chrome network-monitor get                   # retrieve captured requests as JSON array
-uv run remote-chrome network-monitor stop                  # disable monitoring
-
-# 8. Tab management - create new tabs, close tabs, switch between tabs
-uv run remote-chrome tab-new --url "https://example.com"   # create new tab with URL
-uv run remote-chrome tab-new                               # create blank tab
-uv run remote-chrome list-tabs                             # list all tabs with IDs
-uv run remote-chrome tab-switch <tab_id>                   # switch to tab by ID
-uv run remote-chrome tab-close <tab_id>                    # close tab by ID
-
-# 9. Event subscription - listen to browser events (console logs, page loads, network, DOM changes)
-uv run remote-chrome event subscribe --event-types "Runtime.consoleAPICalled,Page.loadEventFired"
-# ... do things in the browser ...
-uv run remote-chrome event poll                           # retrieve accumulated events
-uv run remote-chrome event poll --clear                   # retrieve and clear the event buffer
-uv run remote-chrome event clear                          # clear without reading
-uv run remote-chrome event unsubscribe                    # stop the background event daemon
-```
-
-## Handling SPAs (X, Reddit, modern e-commerce)
-
-These sites have a separate render step AFTER `document.readyState==='complete'`. Use **either** of these waits:
-
-```bash
-# Option A: wait for a CSS selector to appear (most reliable)
-uv run remote-chrome navigate "https://x.com/" --wait-for-selector "article"
-
-# Option B: wait until document.title starts with something specific
-uv run remote-chrome navigate "https://x.com/home" --wait-for-title "Home"
-
-# Option C: don't navigate, just wait after the user clicked something
-uv run remote-chrome wait-for-navigation --url-contains "/home" --timeout 30
-```
-
-### Scrolling to trigger lazy-render / virtual lists
-
-The default `--method=wheel` dispatches real `Input.dispatchMouseEvent(mouseWheel)` at the viewport center. **This is required** for sites with virtualization (X, Reddit) which look at `wheel` events, not just scroll position, before rendering more rows. Don't switch to `--method=js` unless you understand the trade-off.
-
-```bash
-uv run remote-chrome scroll --dy 1500 --wait-ms 500    # wheel scroll, then wait for new articles
-```
-
-### Async eval to poll for DOM stability
-
-Because `eval` awaits Promises by default, you can park a polling expression in one call instead of looping CLI invocations:
-
-```bash
-uv run remote-chrome eval "(async () => {
-  let prev = -1, stable = 0;
-  for (let i = 0; i < 30; i++) {
-    const n = document.querySelectorAll('article').length;
-    if (n === prev && n > 0) { stable++; if (stable >= 4) return {stabilized: true, count: n}; }
-    else { stable = 0; }
-    prev = n;
-    await new Promise(r => setTimeout(r, 200));
-  }
-  return {stabilized: false, last_count: prev};
-})()"
-```
-
-This avoids CLI call latency between polls and is the natural pattern for "wait until new tweets settle".
-
-## Login flow (the user types credentials themselves, NOT the agent)
-
-This skill deliberately does NOT automate password entry. The flow is:
-
-```bash
-# 1. Navigate to the login page (note: use --wait-for-selector if it's a SPA)
-uv run remote-chrome navigate "https://accounts.google.com/" --wait-for-selector "input[type=email]"
-
-# 2. Tell the user to type their email/password/2FA in the real Chrome window
-
-# 3. Wait until auth cookie appears (default waits for SID on .google.com,
-#    pass --cookie-name / --cookie-domain for other sites)
-uv run remote-chrome wait-for-auth --cookie-name SID --cookie-domain .google.com --timeout 300
-
-# 4. Read the auth cookies for use elsewhere.
-#    cookies without args = cookies for current page origin (safe default).
-uv run remote-chrome cookies --domain google.com     # explicit domain filter still works
-```
-
-## Event subscription (monitor console, network, DOM, page lifecycle)
-
-The event system spawns a background daemon that keeps a persistent WebSocket to Chrome CDP, collects matching events into a JSONL file, and lets you poll them later.
-
-### Lifecycle
-
-```bash
-# 1. Subscribe to events you care about
-uv run remote-chrome event subscribe \
-  --event-types "Runtime.consoleAPICalled,Runtime.exceptionThrown,Page.loadEventFired" \
-  --timeout 300
-
-# 2. Perform browser actions (navigation, clicks, etc.)
+# 4. Navigate & interact
 uv run remote-chrome navigate "https://example.com" --wait-for-selector "body"
-uv run remote-chrome click "#my-button"
-
-# 3. Poll accumulated events
-uv run remote-chrome event poll
-
-# 4. Stop the daemon when done
-uv run remote-chrome event unsubscribe
-```
-
-### Supported event types
-
-| Category | Event |
-|---|---|
-| **Runtime** | `Runtime.consoleAPICalled`, `Runtime.exceptionThrown`, `Runtime.executionContextCreated`, `Runtime.executionContextDestroyed` |
-| **Page** | `Page.loadEventFired`, `Page.domContentEventFired`, `Page.frameNavigated`, `Page.javascriptDialogOpening`, `Page.windowOpen` |
-| **Network** | `Network.requestWillBeSent`, `Network.responseReceived`, `Network.loadingFinished`, `Network.loadingFailed` |
-| **DOM** | `DOM.attributeModified`, `DOM.attributeRemoved`, `DOM.childNodeInserted`, `DOM.childNodeRemoved`, `DOM.characterDataModified`, `DOM.documentUpdated` |
-| **Log** | `Log.entryAdded` |
-
-Wildcards are supported: `Runtime.*` subscribes to all Runtime events, `Network.*` to all Network events.
-
-### Common scenarios
-
-**Debug console errors on a page:**
-```bash
-uv run remote-chrome event subscribe --event-types "Runtime.consoleAPICalled,Runtime.exceptionThrown"
-# ... navigate, click around ...
-uv run remote-chrome event poll --clear
-# Look for console.error or uncaught exceptions in the output
-uv run remote-chrome event unsubscribe
-```
-
-**Wait for a specific DOM change:**
-```bash
-uv run remote-chrome event subscribe --event-types "DOM.attributeModified,DOM.childNodeInserted"
-uv run remote-chrome click "#load-more"
-# Poll until you see the expected DOM mutation
-uv run remote-chrome event poll --clear
-uv run remote-chrome event unsubscribe
-```
-
-**Monitor network requests for an SPA interaction:**
-```bash
-uv run remote-chrome event subscribe --event-types "Network.requestWillBeSent,Network.responseReceived"
-uv run remote-chrome click "#search-btn"
-# Examine API calls the button triggered
-uv run remote-chrome event poll
-uv run remote-chrome event unsubscribe
-```
-
-### Event output format
-
-Each event is a JSON object:
-```json
-{
-  "timestamp": 1718500001.234,
-  "method": "Runtime.consoleAPICalled",
-  "params": {
-    "type": "log",
-    "args": [{"type": "string", "value": "Hello from the page"}]
-  }
-}
-```
-
-### Daemon management
-
-- The daemon is **per-port** — one subscriber per Chrome debug port
-- Calling `subscribe` again automatically replaces the previous daemon
-- The daemon exits automatically after `--timeout` seconds (default 300; 0 = indefinite)
-- Poll with `--clear` to consume events (read-and-truncate), or omit to re-read
-
-## Security constraints (HARD RULES for the agent)
-
-The agent using this skill MUST follow:
-
-1. **Never use `type` to enter passwords or 2FA codes.** Authentication flows are intentional manual user actions. The skill provides `wait-for-auth` precisely so the agent does not have to handle credentials.
-
-2. **Do not paste sensitive cookies into chat/logs.** When reading cookies for diagnostic purposes, summarize counts and names rather than dumping values. If a value must be transmitted, redact it (`value=<REDACTED>`).
-
-3. **`kill-chrome` kills ONLY the debug Chrome instance** (filtered by `--remote-debugging-port=9222` in its command line). Your non-debug browsing Chrome is NOT affected. Still, use sparingly — the debug profile's tabs might have unsaved work.
-
-4. **Limit `eval` to read-only or spec-fulfilled actions.** Do not call `eval` with code injected from untrusted sources.
-
-5. **The debug Chrome profile is separate from the user's main Chrome profile.** Websites are NOT logged in by default in the debug profile — the user must log in there manually once per site. This is by design (avoids perturbing the user's main browser state).
-
-6. **`start-chrome` only launches with the fixed debug profile** at `C:\temp\chrome-debug-profile`. The agent must not override the `--user-data-dir` flag to point at the user's main Chrome profile, as that would corrupt their profile when both instances run simultaneously.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `uv run remote-chrome status` returns `chrome_not_running` | Chrome not launched or crashed | Run `uv run remote-chrome start-chrome` |
-| Connection refused after reboot | Windows portproxy persisted, but Chrome was not relaunched | Run `start-chrome` or double-click the desktop shortcut |
-| `chrome_not_running` even after `start-chrome` | Firewall rule deleted, or IP changed | Re-run the bootstrap PowerShell script as Administrator |
-| `tab_not_found` | No tab matches the URL substring | Run `uv run remote-chrome list-tabs` to see available tabs |
-| `element_not_found` | CSS selector did not match | The page may still be loading; pass `--timeout` to `navigate` or add explicit waits |
-| `navigation_timeout` | Page took >15s to load | Run `navigate --timeout 60` |
-| Screenshot is blank or shows only part of page | Page has lazy-loaded content | Scroll first with `scroll --dy N --wait-ms 500`, then capture |
-| Full-page screenshot distorted | Page uses responsive layout | Use viewport screenshot (omit `--full-page`) for best results |
-| `event subscribe` returns `daemon exited immediately` | No open tabs or tab is an internal chrome:// page | Navigate to a real web page first, then subscribe |
-| `event poll` returns empty events but daemon is running | No matching events occurred between subscribe and poll | Verify the event type name is correct; try a broader wildcard like `Runtime.*` |
-| Daemon not collecting events | CDP domain was not enabled | Check `--event-types` spelling; use known types from `event subscribe --help` |
-
-## Quick reference: common scenarios
-
-### Visual verification after interaction
-```bash
-# Click a button and capture what happened
-uv run remote-chrome click "#submit"
+uv run remote-chrome click "#btn"
 uv run remote-chrome screenshot --format png
 ```
 
-### Debug why element not found
-```bash
-# Navigate and immediately screenshot to see actual page state
-uv run remote-chrome navigate "https://example.com" --wait-for-selector "body"
-uv run remote-chrome screenshot --full-page --format jpeg --quality 60
-```
+## Command index
 
-### Document generation / archival
-```bash
-# Capture full article for PDF conversion later
-uv run remote-chrome navigate "https://example.com/article" --wait-for-selector "article"
-uv run remote-chrome screenshot --full-page --format png
-# Output data_base64 field can be decoded and saved as image
-```
+| Category | Commands |
+|----------|----------|
+| **Status & tabs** | `status`, `list-tabs`, `tab-new`, `tab-close`, `tab-switch`, `activate` |
+| **Navigation** | `navigate`, `wait-for-navigation` |
+| **Interaction** | `click`, `type`, `scroll`, `eval` |
+| **Data** | `cookies`, `localstorage`, `get-download-dir` |
+| **Visual** | `screenshot` |
+| **Network** | `network-monitor` (start/stop/get) |
+| **Events** | `event` (subscribe/unsubscribe/poll/clear) |
+| **Auth** | `wait-for-auth` |
+| **Chrome lifecycle** | `start-chrome`, `kill-chrome`, `bootstrap` |
 
-## Auto-detection of Windows host IP
+**Full command reference →** [references/api.md](references/api.md)
 
-When `--host` is not given, the CLI reads `/etc/resolv.conf` for the `nameserver` entry, which on WSL2 is typically the Windows host IP (e.g. `172.x.x.1`). If your WSL is configured differently, pass `--host <windows-ip>` explicitly.
+## Key capabilities
+
+- **SPA-ready** — `--wait-for-selector` / `--wait-for-title` / async eval polling → [SPA patterns](references/spa-patterns.md)
+- **Event-driven** — subscribe to console logs, network, DOM mutations, page lifecycle → [Event subscription](references/events.md)
+- **Secure by default** — no password automation, cookie redaction, selective kill → [Security constraints](references/security.md)
+
+## Troubleshooting
+
+Common issues and fixes → [references/troubleshooting.md](references/troubleshooting.md)
 
 ## Architecture
 
-```
-WSL (this skill) --HTTP/WS--> 172.x.x.1:9223 --netsh portproxy--> 127.0.0.1:9222 --WS--> Chrome (--remote-debugging-port=9222)
-```
+WSL → Windows host IP:9223 → netsh portproxy → 127.0.0.1:9222 → Chrome CDP
 
-Chrome's CDP only binds `127.0.0.1`. The `netsh portproxy` rule forwards traffic from the Windows host's external interface (reachable from WSL) to the loopback CDP port, and a firewall rule lets WSL subnet traffic through.
+Details: [references/architecture.md](references/architecture.md) (installation, Windows bootstrap, login flow, auto-detection, quick-reference scenarios)
 
 ## License
 
 MIT — see `LICENSE`.
-
