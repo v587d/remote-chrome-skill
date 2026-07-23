@@ -31,6 +31,7 @@ from remote_chrome.client import (  # noqa: E402
     RemoteChrome,
     Tab,
     Cookie,
+    NetworkRequest,
     ChromeNotRunningError,
     TabNotFoundError,
     ElementNotFoundError,
@@ -166,3 +167,50 @@ def test_live_cli_bootstrap_no_chrome_needed():
     assert "WSL Chrome Debug" in result["powershell_script"]
     assert "9223" in result["powershell_script"]
 
+
+# --------------------------------------------------------------------------
+# Network Monitoring Tests
+# --------------------------------------------------------------------------
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_network_request_dataclass():
+    """Test NetworkRequest dataclass and to_dict method."""
+    req = NetworkRequest(
+        request_id="test123",
+        url="https://api.example.com/data",
+        method="GET",
+        status=200,
+        resource_type="Fetch",
+        timing={"duration": 150.5, "startTime": 10.2},
+        request_headers={"Authorization": "Bearer xxx"},
+        response_headers={"Content-Type": "application/json"},
+        response_body='{"key": "value"}',
+    )
+    
+    d = req.to_dict()
+    assert d["requestId"] == "test123"
+    assert d["url"] == "https://api.example.com/data"
+    assert d["method"] == "GET"
+    assert d["status"] == 200
+    assert d["resourceType"] == "Fetch"
+    assert d["timing"]["duration"] == 150.5
+    assert d["requestHeaders"]["Authorization"] == "Bearer xxx"
+    assert d["responseBody"] == '{"key": "value"}'
+
+
+@pytest.mark.skipif(MODE == "live", reason="Mock-only test")
+def test_network_request_default_values():
+    """Test NetworkRequest with minimal required fields."""
+    req = NetworkRequest(
+        request_id="minimal",
+        url="https://example.com",
+    )
+    
+    assert req.method == ""
+    assert req.status == 0
+    assert req.resource_type == ""
+    assert req.timing == {}
+    assert req.request_headers == {}
+    assert req.response_headers == {}
+    assert req.response_body == ""
+    assert req.error == ""
