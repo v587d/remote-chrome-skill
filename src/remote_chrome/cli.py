@@ -19,6 +19,7 @@ from remote_chrome.client import (
     AuthTimeoutError,
     ChromeNotRunningError,
     CdpTimeoutError,
+    NetworkRequest,
 )
 
 
@@ -195,6 +196,24 @@ async def _cmd_bootstrap(rc, args) -> dict:
     return generate_bootstrap()
 
 
+async def _cmd_network_monitor(rc, args) -> dict:
+    """Start or stop network monitoring and retrieve requests."""
+    if args.action == "start":
+        await rc.start_network_monitoring(
+            url_filter=args.url_filter,
+            resource_types=args.resource_types.split(",") if args.resource_types else None,
+        )
+        return {"action": "start", "url_filter": args.url_filter, "resource_types": args.resource_types}
+    elif args.action == "stop":
+        await rc.stop_network_monitoring()
+        return {"action": "stop"}
+    elif args.action == "get":
+        requests = await rc.get_network_requests()
+        return {"requests": [req.to_dict() for req in requests], "count": len(requests)}
+    else:
+        return {"error": f"Unknown action: {args.action}"}
+
+
 HANDLERS = {
     "status": _cmd_status,
     "list-tabs": _cmd_list_tabs,
@@ -213,6 +232,7 @@ HANDLERS = {
     "start-chrome": _cmd_start_chrome,
     "kill-chrome": _cmd_kill_chrome,
     "bootstrap": _cmd_bootstrap,
+    "network-monitor": _cmd_network_monitor,
 }
 
 
@@ -314,6 +334,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("kill-chrome",
                    help="Kill ONLY the debug Chrome instance (selective via --remote-debugging-port=9222 in command line)")
+
+    p_network = sub.add_parser("network-monitor", help="Monitor network requests (start/stop/get)")
+    p_network.add_argument("action", choices=["start", "stop", "get"],
+                          help="Action: start monitoring, stop monitoring, or get captured requests")
+    p_network.add_argument("--url-filter", default=None,
+                          help="Filter URLs by substring (only for 'start' action)")
+    p_network.add_argument("--resource-types", default=None,
+                          help="Comma-separated resource types to monitor, e.g., 'XHR,Fetch,Document' (only for 'start')")
 
     return p
 

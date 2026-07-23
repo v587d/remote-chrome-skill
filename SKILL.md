@@ -29,6 +29,7 @@ It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each su
 - **Capturing screenshots** — PNG or JPEG format, with optional `--full-page` to capture entire scrollable content
 - `wait-for-navigation` (polls `location.href` against the real-time baseline, not the HTTP `/json` tab.url)
 - `wait-for-auth` (polls `Network.getCookies` until a named auth cookie appears)
+- **`network-monitor`** (monitor network requests with URL/resource-type filters; retrieve request/response details as JSON)
 - `start-chrome` (launch Chrome with debug port from WSL — no desktop click needed)
 - `kill-chrome` (selectively kill ONLY the debug Chrome instance, never the user's browsing Chrome)
 - `bootstrap` (print the one-time Windows setup PowerShell commands)
@@ -97,6 +98,13 @@ uv run remote-chrome screenshot --full-page --format jpeg --quality 80
 
 # 6. Inspect the debug profile's download directory
 uv run remote-chrome get-download-dir           # reads C:\temp\chrome-debug-profile\Default\Preferences
+
+# 7. Monitor network requests (debug SPA APIs, capture responses)
+uv run remote-chrome network-monitor start                 # enable monitoring for all requests
+uv run remote-chrome network-monitor start --url-filter "/api/" --resource-types "XHR,Fetch"  # filter by URL and type
+# ... perform actions in browser ...
+uv run remote-chrome network-monitor get                   # retrieve captured requests as JSON array
+uv run remote-chrome network-monitor stop                  # disable monitoring
 ```
 
 ## Handling SPAs (X, Reddit, modern e-commerce)

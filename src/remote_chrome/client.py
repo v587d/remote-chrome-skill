@@ -17,7 +17,7 @@ import shlex
 import subprocess
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import websockets
@@ -55,6 +55,35 @@ class Tab:
             type=d.get("type", "page"),
             ws_url=d.get("webSocketDebuggerUrl", ""),
         )
+
+
+@dataclass
+class NetworkRequest:
+    """Represents a monitored network request."""
+    request_id: str
+    url: str
+    method: str = ""
+    status: int = 0
+    resource_type: str = ""
+    timing: dict = field(default_factory=dict)
+    request_headers: dict = field(default_factory=dict)
+    response_headers: dict = field(default_factory=dict)
+    response_body: str = ""
+    error: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "requestId": self.request_id,
+            "url": self.url,
+            "method": self.method,
+            "status": self.status,
+            "resourceType": self.resource_type,
+            "timing": self.timing,
+            "requestHeaders": self.request_headers,
+            "responseHeaders": self.response_headers,
+            "responseBody": self.response_body,
+            "error": self.error,
+        }
 
 
 @dataclass
@@ -971,3 +1000,149 @@ class RemoteChrome:
             f"did not appear within {timeout}s."
         )
 
+    # -- Network monitoring ------------------------------------------------
+
+    async def start_network_monitoring(
+        self,
+        url_filter: str | None = None,
+        resource_types: list[str] | None = None,
+    ) -> None:
+        """Enable network monitoring with optional URL and resource type filters.
+        
+        Args:
+            url_filter: Substring to filter URLs (only requests containing this will be tracked)
+            resource_types: List of resource types to monitor (e.g., ['XHR', 'Fetch', 'Document'])
+                           If None, all types are monitored.
+        """
+        tab = await self._resolve_tab()
+        params: dict[str, Any] = {}
+        
+        if resource_types:
+            params["enable"] = True
+            await self._cdp_send_on_tab(tab, "Network.enable")
+            
+            self._network_url_filter = url_filter
+            self._network_resource_types = set(resource_types) if resource_types else None
+        else:
+            await self._cdp_send_on_tab(tab, "Network.enable")
+            self._network_url_filter = url_filter
+            self._network_resource_types = None
+        
+        logger.info(
+            "Network monitoring enabled on tab %s (url_filter=%r, types=%r)",
+            tab.id[:8], url_filter, resource_types
+        )
+
+    async def stop_network_monitoring(self) -> None:
+        """Disable network monitoring."""
+        tab = await self._resolve_tab()
+        await self._cdp_send_on_tab(tab, "Network.disable")
+        self._network_url_filter = None
+        self._network_resource_types = None
+        logger.info("Network monitoring disabled on tab %s", tab.id[:8])
+
+    async def get_network_requests(self) -> list[NetworkRequest]:
+        """Retrieve all monitored network requests.
+        
+        Returns:
+            List of NetworkRequest objects containing request/response details.
+        """
+        tab = await self._resolve_tab()
+        result = await self._cdp_send_on_tab(
+            tab, "Network.getRequestPostData", {}
+        )
+        requests_data = await self._cdp_send_on_tab(
+            tab, "Network.getResponseBodyForInterception", {}
+        )
+        
+        requests: list[NetworkRequest] = []
+        
+        try:
+            all_resources = await self._eval_on_tab(
+                tab,
+                """
+                (function() {
+                    if (window.performance && window.performance.getEntriesByType) {
+                        return performance.getEntriesByType('resource').map(r => ({
+                            url: r.name,
+                            initiatorType: r.initiatorType,
+                            transferSize: r.transferSize,
+                            encodedBodySize: r.encodedBodySize,
+                            decodedBodySize: r.decodedBodySize,
+                            duration: r.duration,
+                            startTime: r.startTime
+                        }));
+                    }
+                    return [];
+                })()
+                """,
+                timeout=5.0,
+            )
+            
+            if isinstance(all_resources, dict) and "value" in all_resources:
+                resources = json.loads(all_resources.get("value", "[]"))
+                for res in resources:
+                    url = res.get("url", "")
+                    if self._network_url_filter and self._network_url_filter not in url:
+                        continue
+                    if self._network_resource_types:
+                        res_type = res.get("initiatorType", "").upper()
+                        if res_type not in self._network_resource_types:
+                            continue
+                    
+                    req = NetworkRequest(
+                        request_id=f"perf_{len(requests)}",
+                        url=url,
+                        resource_type=res.get("initiatorType", ""),
+                        timing={
+                            "duration": res.get("duration", 0),
+                            "startTime": res.get("startTime", 0),
+                            "transferSize": res.get("transferSize", 0),
+                        },
+                    )
+                    requests.append(req)
+        except Exception as e:
+            logger.warning("Failed to get performance entries: %s", e)
+        
+        return requests
+
+    async def get_request_details(self, request_id: str) -> NetworkRequest | None:
+        """Get detailed information for a specific network request.
+        
+        This method attempts to fetch full request/response data including headers
+        and body. Note: Full interception must be enabled beforehand for complete data.
+        
+        Args:
+            request_id: The CDP request ID
+            
+        Returns:
+            NetworkRequest object or None if not found
+        """
+        tab = await self._resolve_tab()
+        
+        try:
+            req_data = await self._cdp_send_on_tab(
+                tab, "Network.getRequestPostData", {"requestId": request_id}
+            )
+        except RemoteChromeError:
+            req_data = {}
+        
+        try:
+            resp_data = await self._cdp_send_on_tab(
+                tab, "Network.getResponseBody", {"requestId": request_id}
+            )
+        except RemoteChromeError:
+            resp_data = {}
+        
+        if not req_data and not resp_data:
+            return None
+        
+        request_headers = req_data.get("postData", "")
+        response_body = resp_data.get("body", "")
+        
+        return NetworkRequest(
+            request_id=request_id,
+            url="",
+            request_headers={"postData": request_headers} if request_headers else {},
+            response_body=response_body,
+        )
