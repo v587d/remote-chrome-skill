@@ -381,6 +381,61 @@ class RemoteChrome:
         raw = self._http_get("/json")
         return [Tab.from_cdp(t) for t in raw]
 
+    async def get_targets(self) -> list[Tab]:
+        """Get all targets (tabs, pages, background pages, etc.) via CDP."""
+        result = await self._cdp_send_browser("Target.getTargets", {})
+        target_infos = result.get("targetInfos", [])
+        tabs = []
+        for info in target_infos:
+            ws_url = info.get("webSocketDebuggerUrl", "")
+            tabs.append(Tab(
+                id=info.get("targetId", ""),
+                url=info.get("url", ""),
+                title=info.get("title", ""),
+                type=info.get("type", "page"),
+                ws_url=ws_url,
+            ))
+        return tabs
+
+    async def create_tab(self, url: str = "about:blank", new_window: bool = False) -> Tab:
+        """Create a new tab (target) using Target.createTarget."""
+        params = {"url": url}
+        if new_window:
+            params["newWindow"] = True
+        result = await self._cdp_send_browser("Target.createTarget", params)
+        target_id = result.get("targetId")
+        if not target_id:
+            raise RemoteChromeError("Failed to create target: no targetId returned")
+        
+        # Wait briefly for the tab to appear in the list
+        await asyncio.sleep(0.5)
+        
+        # Fetch the newly created tab details
+        tabs = await self.list_tabs_all()
+        for tab in tabs:
+            if tab.id == target_id:
+                return tab
+        
+        # If not found in list, construct a minimal Tab object
+        return Tab(
+            id=target_id,
+            url=url,
+            title="",
+            type="page",
+            ws_url=f"ws://{self.host}:{self.port}/devtools/page/{target_id}",
+        )
+
+    async def close_tab(self, tab_id: str) -> dict:
+        """Close a tab (target) using Target.closeTarget."""
+        result = await self._cdp_send_browser("Target.closeTarget", {"targetId": tab_id})
+        return result
+
+    async def attach_to_target(self, tab_id: str) -> dict:
+        """Attach to an existing target using Target.attachToTarget."""
+        result = await self._cdp_send_browser("Target.attachToTarget", {"targetId": tab_id})
+        session_id = result.get("sessionId")
+        return {"sessionId": session_id, "targetId": tab_id}
+
     async def activate_tab(
         self,
         url_substring: str | None = None,
