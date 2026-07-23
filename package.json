@@ -1,12 +1,38 @@
 {
   "name": "remote-chrome-skill",
   "version": "0.1.0",
-  "description": "Control a Windows Chrome debug instance from WSL Ubuntu via CDP",
-  "keywords": ["pi-package"],
+  "description": "Control Windows Chrome DevTools Protocol (CDP) from WSL/Linux — real browser automation via Pi/Claude Code skill. Navigate, click, type, scroll, screenshot, monitor network, subscribe to CDP events (console, network, DOM, page lifecycle). SPA-ready with wait-for-selector, async eval polling, real mouseWheel scrolling for virtual lists.",
+  "keywords": [
+    "pi-package",
+    "skill",
+    "browser-automation",
+    "cdp",
+    "chrome-devtools-protocol",
+    "web-scraping",
+    "spa-automation",
+    "playwright-alternative",
+    "puppeteer-alternative",
+    "wsl",
+    "windows-chrome",
+    "remote-debugging",
+    "headless-chrome",
+    "network-monitoring",
+    "console-logging",
+    "dom-mutation-observer"
+  ],
+  "license": "MIT",
   "pi": {
-    "skills": ["./SKILL.md"]
+    "skills": ["./"]
   },
   "scripts": {
     "postinstall": "uv sync"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/v587d/remote-chrome-skill"
+  },
+  "bugs": {
+    "url": "https://github.com/v587d/remote-chrome-skill/issues"
+  },
+  "homepage": "https://github.com/v587d/remote-chrome-skill#readme"
 }
