@@ -68,6 +68,38 @@ async def _cmd_list_tabs(rc, args) -> dict:
     }
 
 
+async def _cmd_tab_new(rc, args) -> dict:
+    """Create a new tab."""
+    tab = await rc.create_tab(url=args.url, new_window=args.new_window)
+    return {"created": {"id": tab.id, "url": tab.url, "title": tab.title}}
+
+
+async def _cmd_tab_close(rc, args) -> dict:
+    """Close a tab by ID."""
+    result = await rc.close_tab(args.tab_id)
+    return {"closed": {"id": args.tab_id, "success": result.get("success", True)}}
+
+
+async def _cmd_tab_switch(rc, args) -> dict:
+    """Switch to (activate) a tab by ID."""
+    # Find the tab by ID from all tabs
+    tabs = await rc.list_tabs_all()
+    tab = None
+    for t in tabs:
+        if t.id == args.tab_id:
+            tab = t
+            break
+    
+    if not tab:
+        raise TabNotFoundError(f"No tab found with id: {args.tab_id}")
+    
+    await rc.activate_tab(index=None)  # This will use the already-set target_id
+    # Actually activate the specific tab
+    await rc._cdp_send_browser("Target.activateTarget", {"targetId": tab.id})
+    rc._target_id = tab.id
+    return {"activated": {"id": tab.id, "url": tab.url, "title": tab.title}}
+
+
 async def _cmd_activate(rc, args) -> dict:
     if args.index is not None:
         tab = await rc.activate_tab(index=args.index)
@@ -217,6 +249,9 @@ async def _cmd_network_monitor(rc, args) -> dict:
 HANDLERS = {
     "status": _cmd_status,
     "list-tabs": _cmd_list_tabs,
+    "tab-new": _cmd_tab_new,
+    "tab-close": _cmd_tab_close,
+    "tab-switch": _cmd_tab_switch,
     "activate": _cmd_activate,
     "navigate": _cmd_navigate,
     "click": _cmd_click,
@@ -252,6 +287,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Check Chrome CDP health")
     sub.add_parser("list-tabs", help="List all open page tabs (with 0-based index)")
     sub.add_parser("bootstrap", help="Print Windows one-time setup commands")
+
+    # Tab management commands
+    p_tab_new = sub.add_parser("tab-new", help="Create a new tab")
+    p_tab_new.add_argument("--url", default="about:blank", help="URL to load in the new tab (default: about:blank)")
+    p_tab_new.add_argument("--new-window", action="store_true", help="Open in a new window instead of tab")
+
+    p_tab_close = sub.add_parser("tab-close", help="Close a tab by ID")
+    p_tab_close.add_argument("tab_id", help="The target ID of the tab to close")
+
+    p_tab_switch = sub.add_parser("tab-switch", help="Switch to (activate) a tab by ID")
+    p_tab_switch.add_argument("tab_id", help="The target ID of the tab to switch to")
 
     p_activate = sub.add_parser("activate", help="Activate a tab by URL/title substring or --index N")
     p_activate.add_argument("url_substring", nargs="?", default=None,

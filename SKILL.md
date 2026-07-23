@@ -18,6 +18,7 @@ Control a real Chrome browser running on Windows from WSL Ubuntu (or any Linux t
 
 It exposes a CLI (`remote-chrome`) backed by an async Python CDP client. Each subcommand outputs JSON so an agent can parse results reliably. It covers:
 
+- **Tab management** — create new tabs (`tab-new`), close tabs (`tab-close`), switch between tabs (`tab-switch`), list all tabs (`list-tabs`)
 - Listing and activating tabs (by URL substring **or** 0-based index)
 - Navigating to URLs — supports `--wait-for-selector` / `--wait-for-title` for SPAs where `readyState` lies
 - Clicking elements by CSS selector (real CDP mouse events; error messages include `url` + `readyState` for diagnostics)
@@ -105,6 +106,13 @@ uv run remote-chrome network-monitor start --url-filter "/api/" --resource-types
 # ... perform actions in browser ...
 uv run remote-chrome network-monitor get                   # retrieve captured requests as JSON array
 uv run remote-chrome network-monitor stop                  # disable monitoring
+
+# 8. Tab management - create new tabs, close tabs, switch between tabs
+uv run remote-chrome tab-new --url "https://example.com"   # create new tab with URL
+uv run remote-chrome tab-new                               # create blank tab
+uv run remote-chrome list-tabs                             # list all tabs with IDs
+uv run remote-chrome tab-switch <tab_id>                   # switch to tab by ID
+uv run remote-chrome tab-close <tab_id>                    # close tab by ID
 ```
 
 ## Handling SPAs (X, Reddit, modern e-commerce)
