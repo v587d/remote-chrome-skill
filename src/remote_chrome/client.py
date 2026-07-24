@@ -8,7 +8,10 @@ CDP routing rule:
   Page-level methods (Page.*, Runtime.*, Network.*, Input.*) -> /devtools/page/<id> WS (from /json tab list)
 """
 
+from __future__ import annotations
+
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -16,6 +19,7 @@ import re
 import shlex
 import subprocess
 import time
+import types
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
@@ -47,7 +51,7 @@ class Tab:
     ws_url: str
 
     @classmethod
-    def from_cdp(cls, d: dict) -> "Tab":
+    def from_cdp(cls, d: dict[str, Any]) -> Tab:
         return cls(
             id=d["id"],
             url=d.get("url", ""),
@@ -65,13 +69,13 @@ class NetworkRequest:
     method: str = ""
     status: int = 0
     resource_type: str = ""
-    timing: dict = field(default_factory=dict)
-    request_headers: dict = field(default_factory=dict)
-    response_headers: dict = field(default_factory=dict)
+    timing: dict[str, Any] = field(default_factory=dict)
+    request_headers: dict[str, Any] = field(default_factory=dict)
+    response_headers: dict[str, Any] = field(default_factory=dict)
     response_body: str = ""
     error: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "requestId": self.request_id,
             "url": self.url,
@@ -97,7 +101,7 @@ class Cookie:
     same_site: str = ""
 
     @classmethod
-    def from_cdp(cls, d: dict) -> "Cookie":
+    def from_cdp(cls, d: dict[str, Any]) -> Cookie:
         return cls(
             name=d["name"],
             value=d.get("value", ""),
@@ -148,19 +152,26 @@ class CdpTimeoutError(RemoteChromeError):
 class RemoteChrome:
     """Async client for Chrome DevTools Protocol over WebSocket."""
 
-    def __init__(self, host: str = "172.25.112.1", port: int = 9223):
+    def __init__(self, host: str = "172.25.112.1", port: int = 9223) -> None:
         self.host = host
         self.port = port
         self._http_base = f"http://{host}:{port}"
         self._browser_ws_url: str | None = None
         self._cmd_id: int = 0
         self._target_id: str | None = None
-        self._chrome_process: subprocess.Popen | None = None
+        self._chrome_process: subprocess.Popen[bytes] | None = None
+        self._network_url_filter: str | None = None
+        self._network_resource_types: set[str] | None = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> RemoteChrome:
         return self
 
-    async def __aexit__(self, *exc: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         """Clean up resources on context exit."""
         await self.cleanup()
 
@@ -211,12 +222,12 @@ class RemoteChrome:
         return self._browser_ws_url
 
     async def _cdp_send_browser(
-        self, method: str, params: dict | None = None, *, timeout: float = 30.0
-    ) -> dict:
+        self, method: str, params: dict[str, Any] | None = None, *, timeout: float = 30.0
+    ) -> dict[str, Any]:
         ws_url = self._ensure_browser_ws()
         self._cmd_id += 1
         cmd_id = self._cmd_id
-        ws = None
+        ws: websockets.ClientConnection | None = None
         try:
             ws = await websockets.connect(ws_url, max_size=10 * 1024 * 1024)
             payload: dict[str, Any] = {"id": cmd_id, "method": method}
@@ -244,9 +255,9 @@ class RemoteChrome:
                 await ws.close()
 
     async def _cdp_send_on_tab(
-        self, tab: Tab, method: str, params: dict | None = None,
+        self, tab: Tab, method: str, params: dict[str, Any] | None = None,
         *, timeout: float = 30.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Send a page-level CDP command on a fresh per-call WebSocket.
 
@@ -261,7 +272,7 @@ class RemoteChrome:
             )
         self._cmd_id += 1
         cmd_id = self._cmd_id
-        ws = None
+        ws: websockets.ClientConnection | None = None
         try:
             ws = await websockets.connect(
                 tab.ws_url, max_size=10 * 1024 * 1024
@@ -306,7 +317,7 @@ class RemoteChrome:
         )
         return resp.get("result", {})
 
-    async def _page_context(self, tab: Tab) -> dict:
+    async def _page_context(self, tab: Tab) -> dict[str, Any]:
         """Retrieve current URL + readyState for diagnostics. Best-effort."""
         try:
             raw = await self._eval_on_tab(
@@ -385,7 +396,7 @@ class RemoteChrome:
         """Get all targets (tabs, pages, background pages, etc.) via CDP."""
         result = await self._cdp_send_browser("Target.getTargets", {})
         target_infos = result.get("targetInfos", [])
-        tabs = []
+        tabs: list[Tab] = []
         for info in target_infos:
             ws_url = info.get("webSocketDebuggerUrl", "")
             tabs.append(Tab(
@@ -399,7 +410,7 @@ class RemoteChrome:
 
     async def create_tab(self, url: str = "about:blank", new_window: bool = False) -> Tab:
         """Create a new tab (target) using Target.createTarget."""
-        params = {"url": url}
+        params: dict[str, Any] = {"url": url}
         if new_window:
             params["newWindow"] = True
         result = await self._cdp_send_browser("Target.createTarget", params)
@@ -425,12 +436,12 @@ class RemoteChrome:
             ws_url=f"ws://{self.host}:{self.port}/devtools/page/{target_id}",
         )
 
-    async def close_tab(self, tab_id: str) -> dict:
+    async def close_tab(self, tab_id: str) -> dict[str, Any]:
         """Close a tab (target) using Target.closeTarget."""
         result = await self._cdp_send_browser("Target.closeTarget", {"targetId": tab_id})
         return result
 
-    async def attach_to_target(self, tab_id: str) -> dict:
+    async def attach_to_target(self, tab_id: str) -> dict[str, Any]:
         """Attach to an existing target using Target.attachToTarget."""
         result = await self._cdp_send_browser("Target.attachToTarget", {"targetId": tab_id})
         session_id = result.get("sessionId")
@@ -478,7 +489,7 @@ class RemoteChrome:
         *,
         wait_for_selector: str | None = None,
         wait_for_title: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Navigate to *url*. Optionally wait for readyState, selector, title.
 
         *wait_for_title* is a regex matched against document.title.
@@ -567,7 +578,7 @@ class RemoteChrome:
 
     # -- Page interaction --------------------------------------------------
 
-    async def click(self, selector: str) -> dict:
+    async def click(self, selector: str) -> dict[str, Any]:
         tab = await self._resolve_tab()
         js_sel = json.dumps(selector)
         js = (
@@ -599,7 +610,7 @@ class RemoteChrome:
             )
         return {"x": x, "y": y, "selector": selector}
 
-    async def type_text(self, selector: str, text: str) -> dict:
+    async def type_text(self, selector: str, text: str) -> dict[str, Any]:
         tab = await self._resolve_tab()
         js_sel = json.dumps(selector)
         focus_js = (
@@ -647,7 +658,7 @@ class RemoteChrome:
         *,
         method: str = "wheel",
         wait_ms: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Scroll page or element.
 
@@ -971,7 +982,6 @@ class RemoteChrome:
             result = await self._cdp_send_on_tab(tab, "Page.captureScreenshot", params)
         
         data_b64 = result.get("data", "")
-        import base64
         return base64.b64decode(data_b64)
 
     # -- Wait operations ---------------------------------------------------
@@ -981,7 +991,7 @@ class RemoteChrome:
         url_contains: str | None = None,
         timeout: float = 300,
         poll_interval: float = 1.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Poll location.href until URL matches.
 
         Establishes baseline via Runtime.evaluate (not HTTP /json) so the
@@ -1036,7 +1046,7 @@ class RemoteChrome:
         cookie_domain: str = ".google.com",
         timeout: float = 300,
         poll_interval: float = 1.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Poll Network.getCookies until *cookie_name* on *cookie_domain* appears."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

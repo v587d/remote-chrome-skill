@@ -109,7 +109,7 @@ uv run remote-chrome event subscribe Runtime.consoleAPICalled   # Subscribe to C
 
 Just say it naturally — the skill loads automatically:
 
-> open google.com and search for "pi agent"
+> open browser search pi agent and return first 3 results
 
 That's it. Pi routes the request to this skill's `remote-chrome` CLI.
 
@@ -210,7 +210,7 @@ uv run remote-chrome event subscribe Runtime.consoleAPICalled
 
 在 Pi Agent 里直接用自然语言说，skill 会自动加载：
 
-> 打开谷歌，搜索「pi agent」
+> 打开浏览器搜索 pi agent 并返回前三条
 
 ### 安全
 

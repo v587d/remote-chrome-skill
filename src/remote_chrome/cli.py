@@ -4,10 +4,14 @@ All subcommands output JSON on stdout for easy agent/LLM parsing.
 Human-readable errors go to stderr.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
+import base64
 import json
 import sys
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from remote_chrome.client import (
@@ -20,7 +24,11 @@ from remote_chrome.client import (
     ChromeNotRunningError,
     CdpTimeoutError,
     NetworkRequest,
+    Tab,
 )
+
+# Type alias for the async command handlers dispatched from main().
+CommandHandler = Callable[[RemoteChrome, argparse.Namespace], Coroutine[Any, Any, dict[str, Any]]]
 
 
 def _output_json(obj: Any) -> None:
@@ -40,7 +48,7 @@ def _detect_host() -> str:
     return "172.25.112.1"
 
 
-async def _cmd_status(rc, args) -> dict:
+async def _cmd_status(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     running = await rc.is_running()
     out = {"running": running, "host": rc.host, "port": rc.port}
     if running:
@@ -58,7 +66,7 @@ async def _cmd_status(rc, args) -> dict:
     return out
 
 
-async def _cmd_list_tabs(rc, args) -> dict:
+async def _cmd_list_tabs(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     tabs = await rc.list_tabs()
     return {
         "tabs": [
@@ -68,23 +76,23 @@ async def _cmd_list_tabs(rc, args) -> dict:
     }
 
 
-async def _cmd_tab_new(rc, args) -> dict:
+async def _cmd_tab_new(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     """Create a new tab."""
     tab = await rc.create_tab(url=args.url, new_window=args.new_window)
     return {"created": {"id": tab.id, "url": tab.url, "title": tab.title}}
 
 
-async def _cmd_tab_close(rc, args) -> dict:
+async def _cmd_tab_close(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     """Close a tab by ID."""
     result = await rc.close_tab(args.tab_id)
     return {"closed": {"id": args.tab_id, "success": result.get("success", True)}}
 
 
-async def _cmd_tab_switch(rc, args) -> dict:
+async def _cmd_tab_switch(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     """Switch to (activate) a tab by ID."""
     # Find the tab by ID from all tabs
     tabs = await rc.list_tabs_all()
-    tab = None
+    tab: Tab | None = None
     for t in tabs:
         if t.id == args.tab_id:
             tab = t
@@ -100,7 +108,7 @@ async def _cmd_tab_switch(rc, args) -> dict:
     return {"activated": {"id": tab.id, "url": tab.url, "title": tab.title}}
 
 
-async def _cmd_activate(rc, args) -> dict:
+async def _cmd_activate(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     if args.index is not None:
         tab = await rc.activate_tab(index=args.index)
     else:
@@ -108,7 +116,7 @@ async def _cmd_activate(rc, args) -> dict:
     return {"activated": {"id": tab.id, "url": tab.url, "title": tab.title}}
 
 
-async def _cmd_navigate(rc, args) -> dict:
+async def _cmd_navigate(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     result = await rc.navigate(
         args.url,
         wait=not args.no_wait,
@@ -119,15 +127,15 @@ async def _cmd_navigate(rc, args) -> dict:
     return {"nav": result, "url": args.url}
 
 
-async def _cmd_click(rc, args) -> dict:
+async def _cmd_click(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return await rc.click(args.selector)
 
 
-async def _cmd_type(rc, args) -> dict:
+async def _cmd_type(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return await rc.type_text(args.selector, args.text)
 
 
-async def _cmd_scroll(rc, args) -> dict:
+async def _cmd_scroll(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return await rc.scroll(
         dx=args.dx,
         dy=args.dy,
@@ -137,7 +145,7 @@ async def _cmd_scroll(rc, args) -> dict:
     )
 
 
-async def _cmd_eval(rc, args) -> dict:
+async def _cmd_eval(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     value = await rc.eval_js(
         args.expression,
         await_promise=not args.no_await,
@@ -146,7 +154,7 @@ async def _cmd_eval(rc, args) -> dict:
     return {"value": value}
 
 
-async def _cmd_cookies(rc, args) -> dict:
+async def _cmd_cookies(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     if args.domain:
         cookies = await rc.get_cookies_for_domain(args.domain)
     elif args.url:
@@ -171,13 +179,12 @@ async def _cmd_cookies(rc, args) -> dict:
     }
 
 
-async def _cmd_localstorage(rc, args) -> dict:
+async def _cmd_localstorage(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     ls = await rc.get_localstorage()
     return {"entries": ls, "count": len(ls)}
 
 
-async def _cmd_screenshot(rc, args) -> dict:
-    import base64
+async def _cmd_screenshot(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     data = await rc.screenshot(
         fmt=args.format,
         quality=args.quality if args.format == "jpeg" else None,
@@ -191,11 +198,11 @@ async def _cmd_screenshot(rc, args) -> dict:
     }
 
 
-async def _cmd_get_download_dir(rc, args) -> dict:
+async def _cmd_get_download_dir(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return rc.get_download_dir()
 
 
-async def _cmd_wait_nav(rc, args) -> dict:
+async def _cmd_wait_nav(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return await rc.wait_for_navigation(
         url_contains=args.url_contains,
         timeout=args.timeout,
@@ -203,7 +210,7 @@ async def _cmd_wait_nav(rc, args) -> dict:
     )
 
 
-async def _cmd_wait_auth(rc, args) -> dict:
+async def _cmd_wait_auth(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     return await rc.wait_for_auth(
         cookie_name=args.cookie_name,
         cookie_domain=args.cookie_domain,
@@ -212,23 +219,23 @@ async def _cmd_wait_auth(rc, args) -> dict:
     )
 
 
-async def _cmd_start_chrome(rc, args) -> dict:
+async def _cmd_start_chrome(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     rc.start_chrome()
     ready = await rc.wait_for_ready(timeout=args.timeout)
     return {"started": True, "ready": ready, "host": rc.host, "port": rc.port}
 
 
-async def _cmd_kill_chrome(rc, args) -> dict:
+async def _cmd_kill_chrome(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     rc.kill_chrome()
     return {"killed": True}
 
 
-async def _cmd_bootstrap(rc, args) -> dict:
+async def _cmd_bootstrap(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     from remote_chrome.bootstrap import generate_bootstrap
     return generate_bootstrap()
 
 
-async def _cmd_network_monitor(rc, args) -> dict:
+async def _cmd_network_monitor(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     """Start or stop network monitoring and retrieve requests."""
     if args.action == "start":
         await rc.start_network_monitoring(
@@ -246,7 +253,7 @@ async def _cmd_network_monitor(rc, args) -> dict:
         return {"error": f"Unknown action: {args.action}"}
 
 
-async def _cmd_event_dispatch(rc, args) -> dict:
+async def _cmd_event_dispatch(rc: RemoteChrome, args: argparse.Namespace) -> dict[str, Any]:
     """Dispatch event subcommands: subscribe, unsubscribe, poll, clear."""
     from remote_chrome.events import EVENT_DOMAIN_MAP
 
@@ -303,7 +310,7 @@ async def _cmd_event_dispatch(rc, args) -> dict:
         return {"error": f"Unknown event action: {args.action}"}
 
 
-HANDLERS = {
+HANDLERS: dict[str, CommandHandler] = {
     "status": _cmd_status,
     "list-tabs": _cmd_list_tabs,
     "tab-new": _cmd_tab_new,

@@ -5,6 +5,7 @@ src/remote_chrome/__init__.py
 src/remote_chrome/bootstrap.py
 src/remote_chrome/cli.py
 src/remote_chrome/client.py
+src/remote_chrome/events.py
 src/remote_chrome_skill.egg-info/PKG-INFO
 src/remote_chrome_skill.egg-info/SOURCES.txt
 src/remote_chrome_skill.egg-info/dependency_links.txt
